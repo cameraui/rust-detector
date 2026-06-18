@@ -1,0 +1,26 @@
+{
+  "name": "@camera.ui/rust-detector-linux-arm64-musl",
+  "version": "0.0.0",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "rust-detector.linux-arm64-musl.node",
+  "files": [
+    "rust-detector.linux-arm64-musl.node"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cameraui/rust-detector.git",
+    "directory": "npm/linux-arm64-musl"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">= 10"
+  },
+  "libc": [
+    "musl"
+  ]
+}

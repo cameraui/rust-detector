@@ -1,0 +1,23 @@
+{
+  "name": "@camera.ui/rust-detector-freebsd-x64",
+  "version": "0.0.0",
+  "os": [
+    "freebsd"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "rust-detector.freebsd-x64.node",
+  "files": [
+    "rust-detector.freebsd-x64.node"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cameraui/rust-detector.git",
+    "directory": "npm/freebsd-x64"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">= 10"
+  }
+}

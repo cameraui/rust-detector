@@ -1,0 +1,23 @@
+{
+  "name": "@camera.ui/rust-detector-darwin-arm64",
+  "version": "0.0.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "rust-detector.darwin-arm64.node",
+  "files": [
+    "rust-detector.darwin-arm64.node"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cameraui/rust-detector.git",
+    "directory": "npm/darwin-arm64"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">= 10"
+  }
+}
