@@ -29,7 +29,7 @@ Examples:
 
 Options:
   --yes, -y       Push without the confirmation prompt.
-  --skip-checks   Skip the local lint/build pre-flight (the workflow still runs it).
+  --skip-checks   Skip the local lint (the bindings rebuild always runs).
 EOF
   exit 1
 }
@@ -99,15 +99,20 @@ fi
 
 echo -e "${CYAN}Releasing rust-detector: $cur -> $NEW (tag $TAG)${NC}"
 
+# Bump the top-level version first (leave scripts.version = "napi version") so the
+# rebuild below regenerates index.js / index.d.ts with the new version baked in.
+node -e 'const fs=require("fs");const p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$NEW"
+
 if [ "$SKIP_CHECKS" = false ]; then
-  echo -e "${YELLOW}Running lint + debug build...${NC}"
+  echo -e "${YELLOW}Running lint...${NC}"
   npm run lint
-  npm run build:debug
 fi
 
-# Bump only the top-level version key (leave scripts.version = "napi version").
-node -e 'const fs=require("fs");const p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$NEW"
-git add package.json
+# Always rebuild so the committed (and published) bindings match the new version.
+echo -e "${YELLOW}Regenerating native bindings...${NC}"
+npm run build:debug
+
+git add package.json index.js index.d.ts
 
 git commit -q -m "release: v$NEW"
 echo -e "${GREEN}Committed version bump.${NC}"

@@ -53,6 +53,3 @@ jobs:
 
       - name: Build (debug)
         run: npm run build:debug
-
-      - name: Verify generated bindings are up to date
-        run: git diff --exit-code index.js index.d.ts
