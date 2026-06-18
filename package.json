@@ -1,6 +1,6 @@
 {
   "name": "@camera.ui/rust-detector",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Native Rust motion/object detector for the camera.ui ecosystem",
   "author": "seydx (https://github.com/seydx)",
   "main": "index.js",
