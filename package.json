@@ -51,7 +51,7 @@
     "set-interval-async": "^3.0.3",
     "sharp": "^0.35.1",
     "tsx": "^4.22.4",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "typescript-eslint": "^8.61.1",
     "updates": "^17.18.0"
   },
