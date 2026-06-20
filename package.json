@@ -22,18 +22,19 @@
     ]
   },
   "scripts": {
+    "audit": "npm audit fix",
     "artifacts": "napi artifacts",
-    "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
-    "clean": "cargo clean && rimraf --glob *.node",
+    "build": "napi build --platform --release",
     "clean:cargo": "cargo clean",
+    "clean": "cargo clean && rimraf --glob *.node",
     "format": "prettier --write 'src/' --ignore-unknown --no-error-on-unmatched-pattern && cargo fmt",
     "install-updates": "npm i --save",
-    "lint": "cargo clippy && eslint .",
     "lint:fix": "cargo clippy --fix --allow-dirty && eslint --fix .",
+    "lint": "cargo clippy && eslint .",
     "prepublishOnly": "napi prepublish --no-gh-release",
-    "test": "node --import tsx test/index.ts",
     "test:watch": "node --import tsx --watch test/index.ts",
+    "test": "node --import tsx test/index.ts",
     "universal": "napi universal",
     "update": "updates --update ./",
     "version": "napi version"
