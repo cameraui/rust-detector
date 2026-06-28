@@ -1,8 +1,5 @@
 #![feature(portable_simd)]
 
-use fast_morphology::{
-  dilate, BorderMode, ImageSize, KernelShape, MorphScalar, MorphologyThreadingPolicy,
-};
 use image::{GrayImage, ImageBuffer, Rgb, RgbImage};
 use libblur::{
   gaussian_blur, BlurImage, BlurImageMut, ConvolutionMode, EdgeMode, EdgeMode2D, FastBlurChannels,
@@ -26,9 +23,9 @@ pub struct ImageProcessor {
   has_previous: bool,
   diff_buffer: Vec<u8>,
   flood_fill_stack: Vec<(usize, usize)>,
-  temp_indices: Vec<usize>,
   visited_bitset: Vec<u64>,
   dilate_buffer: Vec<u8>,
+  morph_scratch: Vec<u8>,
 }
 
 #[napi]
@@ -49,9 +46,9 @@ impl ImageProcessor {
       has_previous: false,
       diff_buffer: vec![0u8; num_pixels],
       flood_fill_stack: Vec::with_capacity((width * height / 32) as usize),
-      temp_indices: Vec::with_capacity(32),
       visited_bitset: vec![0u64; bitset_size],
       dilate_buffer: vec![0u8; num_pixels],
+      morph_scratch: vec![0u8; num_pixels],
     }
   }
 
@@ -79,7 +76,7 @@ impl ImageProcessor {
         w,
         h,
         kernel_size,
-      );
+      )?;
     }
 
     if !self.has_previous {
@@ -100,14 +97,13 @@ impl ImageProcessor {
       threshold,
     );
 
-    let width = self.width;
-    let height = self.height;
-    Self::dilate_static(
+    dilate_binary_box(
       &self.diff_buffer,
+      &mut self.morph_scratch,
       &mut self.dilate_buffer,
-      width,
-      height,
-      dilate_size,
+      w,
+      h,
+      dilate_size as usize,
     );
 
     let bounding_boxes = _find_bounding_boxes(
@@ -117,7 +113,6 @@ impl ImageProcessor {
       min_area,
       None,
       &mut self.flood_fill_stack,
-      &mut self.temp_indices,
       &mut self.visited_bitset,
     );
 
@@ -140,8 +135,8 @@ impl ImageProcessor {
       self.diff_buffer.resize(num_pixels, 0);
       self.visited_bitset = vec![0u64; bitset_size];
       self.dilate_buffer.resize(num_pixels, 0);
+      self.morph_scratch.resize(num_pixels, 0);
       self.flood_fill_stack.clear();
-      self.temp_indices.clear();
     }
   }
 
@@ -178,7 +173,7 @@ impl ImageProcessor {
         w,
         h,
         kernel_size,
-      );
+      )?;
     }
 
     // Save blurred image
@@ -224,17 +219,14 @@ impl ImageProcessor {
     )?;
 
     // Step 3: Dilate diff_buffer → dilate_buffer
-    {
-      let width = self.width;
-      let height = self.height;
-      Self::dilate_static(
-        &self.diff_buffer,
-        &mut self.dilate_buffer,
-        width,
-        height,
-        dilate_size,
-      );
-    }
+    dilate_binary_box(
+      &self.diff_buffer,
+      &mut self.morph_scratch,
+      &mut self.dilate_buffer,
+      w,
+      h,
+      dilate_size as usize,
+    );
 
     // Save dilated image
     self.save_debug_image(
@@ -251,7 +243,6 @@ impl ImageProcessor {
       min_area,
       None,
       &mut self.flood_fill_stack,
-      &mut self.temp_indices,
       &mut self.visited_bitset,
     );
 
@@ -274,7 +265,7 @@ impl ImageProcessor {
     width: usize,
     height: usize,
     kernel_size: u8,
-  ) {
+  ) -> Result<()> {
     let src_image = BlurImage::borrow(input, width as u32, height as u32, FastBlurChannels::Plane);
 
     let mut dst_image =
@@ -291,11 +282,11 @@ impl ImageProcessor {
       &src_image,
       &mut dst_image,
       params,
-      EdgeMode2D::new(EdgeMode::Wrap),
-      ThreadingPolicy::Adaptive,
+      EdgeMode2D::new(EdgeMode::Clamp),
+      ThreadingPolicy::Single,
       ConvolutionMode::FixedPoint,
     )
-    .unwrap()
+    .map_err(|e| napi::Error::from_reason(format!("Gaussian blur failed: {}", e)))
   }
 
   fn detect_frame_differences(
@@ -330,24 +321,6 @@ impl ImageProcessor {
       let diff = current_frame[i].abs_diff(previous_frame[i]);
       output[i] = if diff >= threshold { 255 } else { 0 };
     }
-  }
-
-  fn dilate_static(input: &[u8], output: &mut [u8], width: u32, height: u32, size: u8) {
-    let se_size = (size * 2 + 1) as usize;
-    let kernel_shape = KernelShape::new(se_size, se_size);
-    let structuring_element = vec![255u8; se_size * se_size];
-
-    dilate(
-      input,
-      output,
-      ImageSize::new(width as usize, height as usize),
-      &structuring_element,
-      kernel_shape,
-      BorderMode::Wrap,
-      MorphScalar::dup(0.0),
-      MorphologyThreadingPolicy::default(),
-    )
-    .unwrap();
   }
 
   fn save_debug_image(&self, data: &[u8], output_dir: &str, filename: &str) -> Result<()> {
@@ -408,6 +381,92 @@ impl ImageProcessor {
   }
 }
 
+fn dilate_binary_box(
+  input: &[u8],
+  scratch: &mut [u8],
+  output: &mut [u8],
+  width: usize,
+  height: usize,
+  r: usize,
+) {
+  if r == 0 {
+    output.copy_from_slice(input);
+    return;
+  }
+
+  let blocks_end = if width >= 32 + r { width - 32 - r } else { 0 };
+
+  // Horizontal pass: input -> scratch (OR across columns within r).
+  for y in 0..height {
+    let row = y * width;
+    let in_row = &input[row..row + width];
+    let out_row = &mut scratch[row..row + width];
+
+    let mut x = r;
+    while x <= blocks_end {
+      let base = x - r;
+      let mut acc = u8x32::from_slice(&in_row[base..base + 32]);
+      for k in 1..=2 * r {
+        acc |= u8x32::from_slice(&in_row[base + k..base + k + 32]);
+      }
+      acc.copy_to_slice(&mut out_row[x..x + 32]);
+      x += 32;
+    }
+    let simd_end = x;
+
+    // Borders (and the whole row when the SIMD loop didn't run).
+    for x in 0..width {
+      if x >= r && x < simd_end {
+        continue;
+      }
+      let lo = x.saturating_sub(r);
+      let hi = (x + r + 1).min(width);
+      out_row[x] = if in_row[lo..hi].iter().any(|&v| v != 0) {
+        255
+      } else {
+        0
+      };
+    }
+  }
+
+  // Vertical pass: scratch -> output (OR across rows within r).
+  for y in 0..height {
+    let row = y * width;
+
+    if y >= r && y + r < height {
+      let top = (y - r) * width;
+      let mut x = 0;
+      while x + 32 <= width {
+        let mut acc = u8x32::from_slice(&scratch[top + x..top + x + 32]);
+        for k in 1..=2 * r {
+          let o = top + k * width + x;
+          acc |= u8x32::from_slice(&scratch[o..o + 32]);
+        }
+        acc.copy_to_slice(&mut output[row + x..row + x + 32]);
+        x += 32;
+      }
+      for x in x..width {
+        let mut v = 0u8;
+        for k in 0..=2 * r {
+          v |= scratch[top + k * width + x];
+        }
+        output[row + x] = v;
+      }
+    } else {
+      // Border row: clamp the vertical window.
+      let lo = y.saturating_sub(r);
+      let hi = (y + r + 1).min(height);
+      for x in 0..width {
+        let mut v = 0u8;
+        for yy in lo..hi {
+          v |= scratch[yy * width + x];
+        }
+        output[row + x] = v;
+      }
+    }
+  }
+}
+
 #[inline(always)]
 fn get_bit(bitset: &[u64], idx: usize) -> bool {
   let word = idx / 64;
@@ -423,6 +482,65 @@ fn set_bit(bitset: &mut [u64], idx: usize) {
 }
 
 #[inline(always)]
+fn flood_fill(
+  data: &[u8],
+  width: usize,
+  height: usize,
+  stride: usize,
+  sy: usize,
+  sx: usize,
+  stack: &mut Vec<(usize, usize)>,
+  visited: &mut [u64],
+) -> (usize, usize, usize, usize, u32) {
+  stack.clear();
+  set_bit(visited, sy * width + sx);
+  stack.push((sy, sx));
+
+  let (mut min_x, mut min_y, mut max_x, mut max_y) = (sx, sy, sx, sy);
+  let mut area: u32 = 0;
+
+  while let Some((cy, cx)) = stack.pop() {
+    min_x = min_x.min(cx);
+    min_y = min_y.min(cy);
+    max_x = max_x.max(cx);
+    max_y = max_y.max(cy);
+    area += 1;
+
+    let row = cy * stride;
+    if cx > 0 {
+      let n = cy * width + cx - 1;
+      if !get_bit(visited, n) && data[row + cx - 1] == 255 {
+        set_bit(visited, n);
+        stack.push((cy, cx - 1));
+      }
+    }
+    if cx + 1 < width {
+      let n = cy * width + cx + 1;
+      if !get_bit(visited, n) && data[row + cx + 1] == 255 {
+        set_bit(visited, n);
+        stack.push((cy, cx + 1));
+      }
+    }
+    if cy > 0 {
+      let n = (cy - 1) * width + cx;
+      if !get_bit(visited, n) && data[(cy - 1) * stride + cx] == 255 {
+        set_bit(visited, n);
+        stack.push((cy - 1, cx));
+      }
+    }
+    if cy + 1 < height {
+      let n = (cy + 1) * width + cx;
+      if !get_bit(visited, n) && data[(cy + 1) * stride + cx] == 255 {
+        set_bit(visited, n);
+        stack.push((cy + 1, cx));
+      }
+    }
+  }
+
+  (min_x, min_y, max_x, max_y, area)
+}
+
+#[inline(always)]
 fn _find_bounding_boxes(
   data: &[u8],
   width: usize,
@@ -430,7 +548,6 @@ fn _find_bounding_boxes(
   min_area: u32,
   stride: Option<usize>,
   stack: &mut Vec<(usize, usize)>,
-  temp_indices: &mut Vec<usize>,
   visited: &mut [u64],
 ) -> Vec<BoundingBox> {
   let stride = stride.unwrap_or(width);
@@ -453,69 +570,26 @@ fn _find_bounding_boxes(
         continue;
       }
 
-      let mask_bits = mask.to_bitmask();
-      temp_indices.clear();
+      let mut mask_bits = mask.to_bitmask();
+      while mask_bits != 0 {
+        let offset = mask_bits.trailing_zeros() as usize;
+        mask_bits &= mask_bits - 1;
 
-      for offset in 0..32 {
-        if (mask_bits & (1 << offset)) != 0 {
-          let curr_x = x + offset;
-          let visit_idx = y * width + curr_x;
-          if !get_bit(visited, visit_idx) {
-            temp_indices.push(visit_idx);
-          }
+        let cx = x + offset;
+        if get_bit(visited, y * width + cx) {
+          continue;
         }
-      }
 
-      for &visit_idx in temp_indices.iter() {
-        let cx = visit_idx % width;
-        let cy = visit_idx / width;
-        let data_idx = cy * stride + cx;
+        let (min_x, min_y, max_x, max_y, area) =
+          flood_fill(data, width, height, stride, y, cx, stack, visited);
 
-        if !get_bit(visited, visit_idx) && data[data_idx] == 255 {
-          stack.clear();
-          stack.push((cy, cx));
-
-          let mut min_x = cx;
-          let mut min_y = cy;
-          let mut max_x = cx;
-          let mut max_y = cy;
-          let mut area = 0;
-
-          while let Some((cy, cx)) = stack.pop() {
-            let visit_idx = cy * width + cx;
-            let data_idx = cy * stride + cx;
-
-            if cy < height && cx < width && !get_bit(visited, visit_idx) && data[data_idx] == 255 {
-              set_bit(visited, visit_idx);
-              min_x = min_x.min(cx);
-              min_y = min_y.min(cy);
-              max_x = max_x.max(cx);
-              max_y = max_y.max(cy);
-              area += 1;
-
-              if cx > 0 {
-                stack.push((cy, cx - 1));
-              }
-              if cx + 1 < width {
-                stack.push((cy, cx + 1));
-              }
-              if cy > 0 {
-                stack.push((cy - 1, cx));
-              }
-              if cy + 1 < height {
-                stack.push((cy + 1, cx));
-              }
-            }
-          }
-
-          if area >= min_area {
-            bounding_boxes.push([
-              min_x as u32,
-              min_y as u32,
-              (max_x + 1) as u32,
-              (max_y + 1) as u32,
-            ]);
-          }
+        if area >= min_area {
+          bounding_boxes.push([
+            min_x as u32,
+            min_y as u32,
+            (max_x + 1) as u32,
+            (max_y + 1) as u32,
+          ]);
         }
       }
 
@@ -523,41 +597,9 @@ fn _find_bounding_boxes(
     }
 
     while x < width {
-      let idx = y * width + x;
-      if !get_bit(visited, idx) && data[y * stride + x] == 255 {
-        stack.clear();
-        stack.push((y, x));
-
-        let mut min_x = x;
-        let mut min_y = y;
-        let mut max_x = x;
-        let mut max_y = y;
-        let mut area = 0;
-
-        while let Some((cy, cx)) = stack.pop() {
-          let idx = cy * width + cx;
-          if cy < height && cx < width && !get_bit(visited, idx) && data[cy * stride + cx] == 255 {
-            set_bit(visited, idx);
-            min_x = min_x.min(cx);
-            min_y = min_y.min(cy);
-            max_x = max_x.max(cx);
-            max_y = max_y.max(cy);
-            area += 1;
-
-            if cx > 0 {
-              stack.push((cy, cx - 1));
-            }
-            if cx + 1 < width {
-              stack.push((cy, cx + 1));
-            }
-            if cy > 0 {
-              stack.push((cy - 1, cx));
-            }
-            if cy + 1 < height {
-              stack.push((cy + 1, cx));
-            }
-          }
-        }
+      if !get_bit(visited, y * width + x) && data[row_offset + x] == 255 {
+        let (min_x, min_y, max_x, max_y, area) =
+          flood_fill(data, width, height, stride, y, x, stack, visited);
 
         if area >= min_area {
           bounding_boxes.push([
