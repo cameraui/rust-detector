@@ -33,6 +33,7 @@
     "lint:fix": "cargo clippy --fix --allow-dirty && eslint --fix .",
     "lint": "cargo clippy && eslint .",
     "prepublishOnly": "napi prepublish --no-gh-release",
+    "release": "bash scripts/release.sh",
     "test:watch": "node --import tsx --watch test/index.ts",
     "test": "node --import tsx test/index.ts",
     "universal": "napi universal",
