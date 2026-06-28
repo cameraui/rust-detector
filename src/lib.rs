@@ -147,6 +147,7 @@ impl ImageProcessor {
   }
 
   #[napi]
+  #[allow(clippy::too_many_arguments)]
   pub fn process_image_debug(
     &mut self,
     frame: Uint8Array,
@@ -414,7 +415,9 @@ fn dilate_binary_box(
     }
     let simd_end = x;
 
-    // Borders (and the whole row when the SIMD loop didn't run).
+    // Borders (and the whole row when the SIMD loop didn't run). `x` indexes
+    // `out_row` while also slicing `in_row[lo..hi]`, so enumerate doesn't fit.
+    #[allow(clippy::needless_range_loop)]
     for x in 0..width {
       if x >= r && x < simd_end {
         continue;
@@ -482,6 +485,7 @@ fn set_bit(bitset: &mut [u64], idx: usize) {
 }
 
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 fn flood_fill(
   data: &[u8],
   width: usize,
