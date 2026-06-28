@@ -7,12 +7,10 @@ version = "0.0.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-fast_morphology = "0.3.2"
 image = "0.25.10"
 libblur = "0.24.0"
-napi = { version = "3.9.2", default-features = false, features = ["napi9"] }
-napi-derive = "3.5.6"
-ndarray = { version = "0.17.2", features = ["rayon"] }
+napi = { version = "3.9.4", default-features = false, features = ["napi9"] }
+napi-derive = "3.5.7"
 
 [build-dependencies]
 napi-build = "2.3.2"
