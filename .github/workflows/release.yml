@@ -193,7 +193,7 @@ jobs:
       - name: Publish
         run: |
           # Upgrade npm for OIDC trusted publishing (requires npm >= 11.5.1)
-          npm install -g npm@latest
+          npm install -g npm@11.18.0
 
           # Update versions across platform packages (skip auto-publishing them)
           npx napi prepublish --no-gh-release --skip-optional-publish
