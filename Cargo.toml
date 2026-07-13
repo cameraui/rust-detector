@@ -9,8 +9,8 @@ crate-type = ["cdylib"]
 [dependencies]
 image = "0.25.10"
 libblur = "0.24.0"
-napi = { version = "3.10.3", default-features = false, features = ["napi9"] }
-napi-derive = "3.5.9"
+napi = { version = "3.10.5", default-features = false, features = ["napi9"] }
+napi-derive = "3.5.10"
 
 [build-dependencies]
 napi-build = "2.3.2"
