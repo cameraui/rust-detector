@@ -40,7 +40,7 @@
     "version": "napi version"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.8.1",
+    "@napi-rs/cli": "^3.8.2",
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^26.1.2",
     "@typescript-eslint/parser": "^8.65.0",
@@ -55,7 +55,7 @@
     "tsx": "^4.23.1",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.65.0",
-    "updates": "^17.20.1"
+    "updates": "^17.20.2"
   },
   "bugs": {
     "url": "https://github.com/cameraui/rust-detector/issues"
