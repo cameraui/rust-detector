@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 image = "0.25.10"
 libblur = "0.24.0"
 napi = { version = "3.12.0", default-features = false, features = ["napi9"] }
-napi-derive = "3.6.1"
+napi-derive = "3.6.2"
 
 [build-dependencies]
 napi-build = "2.4.0"
