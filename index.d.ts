@@ -4,7 +4,7 @@ export declare class ImageProcessor {
   width: number
   height: number
   constructor(width: number, height: number)
-  processImage(frame: Uint8Array, threshold: number, kernelSize: number, dilateSize: number, minArea: number): Array<BoundingBox>
+  processImage(frame: Uint8Array, threshold: number, kernelSize: number, dilateSize: number, minArea: number, updateReference?: boolean | undefined | null): Array<BoundingBox>
   reconfigure(width: number, height: number): void
   resetState(): void
   processImageDebug(frame: Uint8Array, threshold: number, kernelSize: number, dilateSize: number, minArea: number, outputDir: string, prefix: string): Array<BoundingBox>

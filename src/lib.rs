@@ -31,6 +31,72 @@ pub struct ImageProcessor {
 #[napi]
 pub type BoundingBox = [u32; 4]; // [x, y, x + w, y + h]
 
+const MAX_RAW_BLOBS: usize = 1000;
+const MAX_COVERAGE: f64 = 0.8;
+
+struct Blob {
+  min_x: u32,
+  min_y: u32,
+  max_x: u32, // exclusive
+  max_y: u32, // exclusive
+  area: u32,
+}
+
+fn boxes_touch_padded(a: &Blob, b: &Blob, pad: u32) -> bool {
+  a.min_x <= b.max_x.saturating_add(pad)
+    && b.min_x <= a.max_x.saturating_add(pad)
+    && a.min_y <= b.max_y.saturating_add(pad)
+    && b.min_y <= a.max_y.saturating_add(pad)
+}
+
+fn merge_into(target: &mut Blob, other: &Blob) {
+  target.min_x = target.min_x.min(other.min_x);
+  target.min_y = target.min_y.min(other.min_y);
+  target.max_x = target.max_x.max(other.max_x);
+  target.max_y = target.max_y.max(other.max_y);
+  target.area += other.area;
+}
+
+fn cluster_blobs(blobs: Vec<Blob>, pad: u32, min_area: u32) -> Vec<Blob> {
+  let mut clusters: Vec<Blob> = Vec::new();
+
+  for blob in blobs {
+    match clusters
+      .iter_mut()
+      .find(|cluster| boxes_touch_padded(cluster, &blob, pad))
+    {
+      Some(cluster) => merge_into(cluster, &blob),
+      None => clusters.push(blob),
+    }
+  }
+
+  // merging can bring previously separate clusters into range of each other
+  loop {
+    let mut merged_any = false;
+    let mut i = 0;
+    while i < clusters.len() {
+      let mut j = i + 1;
+      while j < clusters.len() {
+        if boxes_touch_padded(&clusters[i], &clusters[j], pad) {
+          let other = clusters.swap_remove(j);
+          merge_into(&mut clusters[i], &other);
+          merged_any = true;
+        } else {
+          j += 1;
+        }
+      }
+      i += 1;
+    }
+    if !merged_any {
+      break;
+    }
+  }
+
+  clusters.retain(|cluster| cluster.area >= min_area);
+  clusters.sort_by(|a, b| b.area.cmp(&a.area));
+  clusters
+}
+
 #[napi]
 impl ImageProcessor {
   #[napi(constructor)]
@@ -60,6 +126,7 @@ impl ImageProcessor {
     kernel_size: u8,
     dilate_size: u8,
     min_area: u32,
+    update_reference: Option<bool>,
   ) -> Result<Vec<BoundingBox>> {
     let w = self.width as usize;
     let h = self.height as usize;
@@ -106,19 +173,43 @@ impl ImageProcessor {
       dilate_size as usize,
     );
 
-    let bounding_boxes = _find_bounding_boxes(
+    let blobs = find_blobs(
       &self.dilate_buffer,
       w,
       h,
-      min_area,
       None,
       &mut self.flood_fill_stack,
       &mut self.visited_bitset,
     );
 
-    self.buf_phase = !self.buf_phase;
+    if blobs.len() > MAX_RAW_BLOBS {
+      self.buf_phase = !self.buf_phase;
+      return Ok(vec![[0, 0, self.width, self.height]]);
+    }
 
-    Ok(bounding_boxes)
+    let pad = (w.min(h) / 6) as u32;
+    let clusters = cluster_blobs(blobs, pad, min_area);
+
+    // clusters are pairwise disjoint after merging, the plain sum is exact
+    let coverage: u64 = clusters
+      .iter()
+      .map(|c| ((c.max_x - c.min_x) as u64) * ((c.max_y - c.min_y) as u64))
+      .sum();
+    if coverage as f64 > MAX_COVERAGE * (w as f64) * (h as f64) {
+      self.buf_phase = !self.buf_phase;
+      return Ok(vec![[0, 0, self.width, self.height]]);
+    }
+
+    if update_reference.unwrap_or(true) {
+      self.buf_phase = !self.buf_phase;
+    }
+
+    Ok(
+      clusters
+        .iter()
+        .map(|c| [c.min_x, c.min_y, c.max_x, c.max_y])
+        .collect(),
+    )
   }
 
   #[napi]
@@ -236,16 +327,25 @@ impl ImageProcessor {
       &format!("{}_3_dilated.png", prefix),
     )?;
 
-    // Step 4: Find bounding boxes on dilate_buffer directly
-    let bounding_boxes = _find_bounding_boxes(
+    // Step 4: Blobs on dilate_buffer, then cluster like process_image does
+    let blobs = find_blobs(
       &self.dilate_buffer,
       w,
       h,
-      min_area,
       None,
       &mut self.flood_fill_stack,
       &mut self.visited_bitset,
     );
+
+    let bounding_boxes: Vec<BoundingBox> = if blobs.len() > MAX_RAW_BLOBS {
+      vec![[0, 0, self.width, self.height]]
+    } else {
+      let pad = (w.min(h) / 6) as u32;
+      cluster_blobs(blobs, pad, min_area)
+        .iter()
+        .map(|c| [c.min_x, c.min_y, c.max_x, c.max_y])
+        .collect()
+    };
 
     // Save bounding boxes image
     self.save_debug_image_with_boxes(
@@ -545,17 +645,16 @@ fn flood_fill(
 }
 
 #[inline(always)]
-fn _find_bounding_boxes(
+fn find_blobs(
   data: &[u8],
   width: usize,
   height: usize,
-  min_area: u32,
   stride: Option<usize>,
   stack: &mut Vec<(usize, usize)>,
   visited: &mut [u64],
-) -> Vec<BoundingBox> {
+) -> Vec<Blob> {
   let stride = stride.unwrap_or(width);
-  let mut bounding_boxes = Vec::new();
+  let mut blobs = Vec::new();
 
   visited.fill(0);
 
@@ -587,13 +686,16 @@ fn _find_bounding_boxes(
         let (min_x, min_y, max_x, max_y, area) =
           flood_fill(data, width, height, stride, y, cx, stack, visited);
 
-        if area >= min_area {
-          bounding_boxes.push([
-            min_x as u32,
-            min_y as u32,
-            (max_x + 1) as u32,
-            (max_y + 1) as u32,
-          ]);
+        blobs.push(Blob {
+          min_x: min_x as u32,
+          min_y: min_y as u32,
+          max_x: (max_x + 1) as u32,
+          max_y: (max_y + 1) as u32,
+          area,
+        });
+
+        if blobs.len() > MAX_RAW_BLOBS {
+          return blobs;
         }
       }
 
@@ -605,18 +707,21 @@ fn _find_bounding_boxes(
         let (min_x, min_y, max_x, max_y, area) =
           flood_fill(data, width, height, stride, y, x, stack, visited);
 
-        if area >= min_area {
-          bounding_boxes.push([
-            min_x as u32,
-            min_y as u32,
-            (max_x + 1) as u32,
-            (max_y + 1) as u32,
-          ]);
+        blobs.push(Blob {
+          min_x: min_x as u32,
+          min_y: min_y as u32,
+          max_x: (max_x + 1) as u32,
+          max_y: (max_y + 1) as u32,
+          area,
+        });
+
+        if blobs.len() > MAX_RAW_BLOBS {
+          return blobs;
         }
       }
       x += 1;
     }
   }
 
-  bounding_boxes
+  blobs
 }
