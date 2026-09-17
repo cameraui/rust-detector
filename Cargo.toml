@@ -9,11 +9,11 @@ crate-type = ["cdylib"]
 [dependencies]
 image = "0.25.10"
 libblur = "0.24.0"
-napi = { version = "3.12.4", default-features = false, features = ["napi9"] }
-napi-derive = "3.6.5"
+napi = { version = "3.12.6", default-features = false, features = ["napi9"] }
+napi-derive = "3.6.7"
 
 [build-dependencies]
-napi-build = "2.4.2"
+napi-build = "2.4.3"
 
 [profile.release]
 lto = true
