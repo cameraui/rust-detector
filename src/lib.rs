@@ -1,5 +1,3 @@
-#![feature(portable_simd)]
-
 use image::{GrayImage, ImageBuffer, Rgb, RgbImage};
 use libblur::{
   gaussian_blur, BlurImage, BlurImageMut, ConvolutionMode, EdgeMode, EdgeMode2D, FastBlurChannels,
@@ -9,9 +7,7 @@ use napi::bindgen_prelude::*;
 use napi::Result;
 use napi_derive::napi;
 use std::path::Path;
-use std::simd::cmp::{SimdPartialEq, SimdPartialOrd};
-use std::simd::num::SimdUint;
-use std::simd::u8x32;
+use wide::u8x32;
 
 #[napi]
 pub struct ImageProcessor {
@@ -93,7 +89,7 @@ fn cluster_blobs(blobs: Vec<Blob>, pad: u32, min_area: u32) -> Vec<Blob> {
   }
 
   clusters.retain(|cluster| cluster.area >= min_area);
-  clusters.sort_by(|a, b| b.area.cmp(&a.area));
+  clusters.sort_by_key(|c| std::cmp::Reverse(c.area));
   clusters
 }
 
@@ -396,31 +392,10 @@ impl ImageProcessor {
     output: &mut [u8],
     threshold: u8,
   ) {
-    let len = current_frame.len();
-    let threshold_simd = u8x32::splat(threshold);
-    let zero_simd = u8x32::splat(0);
-    let max_simd = u8x32::splat(255);
-
-    let chunks = len / 32;
-
-    output[..chunks * 32]
-      .chunks_exact_mut(32)
-      .zip(current_frame[..chunks * 32].chunks_exact(32))
-      .zip(previous_frame[..chunks * 32].chunks_exact(32))
-      .for_each(|((out, current), previous)| {
-        let c = u8x32::from_slice(current);
-        let p = u8x32::from_slice(previous);
-
-        let diff = c.saturating_sub(p) | p.saturating_sub(c);
-        let mask = diff.simd_ge(threshold_simd);
-        let result = mask.select(max_simd, zero_simd);
-
-        result.copy_to_slice(out);
-      });
-
-    for i in (chunks * 32)..len {
-      let diff = current_frame[i].abs_diff(previous_frame[i]);
-      output[i] = if diff >= threshold { 255 } else { 0 };
+    // max - min with a wrapped bool vectorizes well, abs_diff with if/else ran 3x slower on NEON
+    for ((out, &current), &previous) in output.iter_mut().zip(current_frame).zip(previous_frame) {
+      let diff = current.max(previous) - current.min(previous);
+      *out = 0u8.wrapping_sub((diff >= threshold) as u8);
     }
   }
 
@@ -482,6 +457,11 @@ impl ImageProcessor {
   }
 }
 
+#[inline(always)]
+fn load_block(src: &[u8]) -> u8x32 {
+  u8x32::new(src[..32].try_into().unwrap())
+}
+
 fn dilate_binary_box(
   input: &[u8],
   scratch: &mut [u8],
@@ -506,22 +486,17 @@ fn dilate_binary_box(
     let mut x = r;
     while x <= blocks_end {
       let base = x - r;
-      let mut acc = u8x32::from_slice(&in_row[base..base + 32]);
+      let mut acc = load_block(&in_row[base..]);
       for k in 1..=2 * r {
-        acc |= u8x32::from_slice(&in_row[base + k..base + k + 32]);
+        acc |= load_block(&in_row[base + k..]);
       }
-      acc.copy_to_slice(&mut out_row[x..x + 32]);
+      out_row[x..x + 32].copy_from_slice(&acc.to_array());
       x += 32;
     }
     let simd_end = x;
 
-    // Borders (and the whole row when the SIMD loop didn't run). `x` indexes
-    // `out_row` while also slicing `in_row[lo..hi]`, so enumerate doesn't fit.
-    #[allow(clippy::needless_range_loop)]
-    for x in 0..width {
-      if x >= r && x < simd_end {
-        continue;
-      }
+    // Borders (and the whole row when the SIMD loop didn't run).
+    for x in (0..r.min(width)).chain(simd_end..width) {
       let lo = x.saturating_sub(r);
       let hi = (x + r + 1).min(width);
       out_row[x] = if in_row[lo..hi].iter().any(|&v| v != 0) {
@@ -540,12 +515,11 @@ fn dilate_binary_box(
       let top = (y - r) * width;
       let mut x = 0;
       while x + 32 <= width {
-        let mut acc = u8x32::from_slice(&scratch[top + x..top + x + 32]);
+        let mut acc = load_block(&scratch[top + x..]);
         for k in 1..=2 * r {
-          let o = top + k * width + x;
-          acc |= u8x32::from_slice(&scratch[o..o + 32]);
+          acc |= load_block(&scratch[top + k * width + x..]);
         }
-        acc.copy_to_slice(&mut output[row + x..row + x + 32]);
+        output[row + x..row + x + 32].copy_from_slice(&acc.to_array());
         x += 32;
       }
       for x in x..width {
@@ -665,8 +639,7 @@ fn find_blobs(
     let mut x = 0;
 
     while x + 32 <= width {
-      let pixels = u8x32::from_slice(&data[row_offset + x..row_offset + x + 32]);
-      let mask = pixels.simd_eq(target);
+      let mask = load_block(&data[row_offset + x..]).simd_eq(target);
 
       if !mask.any() {
         x += 32;
