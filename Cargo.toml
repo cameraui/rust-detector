@@ -11,6 +11,7 @@ image = "0.25.10"
 libblur = "0.24.0"
 napi = { version = "3.14.0", default-features = false, features = ["napi9"] }
 napi-derive = "3.6.10"
+wide = "1.7.1"
 
 [build-dependencies]
 napi-build = "2.6.0"

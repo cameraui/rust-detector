@@ -55,7 +55,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         if: ${{ !matrix.settings.docker }}
         with:
-          toolchain: nightly-2025-09-30
           targets: ${{ matrix.settings.target }}
       - name: Cache cargo
         uses: actions/cache@v6
@@ -89,8 +88,8 @@ jobs:
               curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
               apt-get install -y nodejs
             fi
-            rustup toolchain install nightly-2025-09-30
-            rustup default nightly-2025-09-30
+            rustup toolchain install stable
+            rustup default stable
             rustup target add ${{ matrix.settings.target }}
             if [ "${{ matrix.settings.target }}" = "aarch64-unknown-linux-musl" ]; then
               apk add --no-cache zig
@@ -128,7 +127,7 @@ jobs:
           run: |
             sudo pkg install -y -f curl node libnghttp2 npm
             curl https://sh.rustup.rs -sSf --output rustup.sh
-            sh rustup.sh -y --profile minimal --default-toolchain nightly-2025-09-30
+            sh rustup.sh -y --profile minimal --default-toolchain stable
             source "$HOME/.cargo/env"
             echo "~~~~ rustc --version ~~~~"
             rustc --version
