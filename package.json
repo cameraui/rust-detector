@@ -40,10 +40,10 @@
     "version": "napi version"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.10.6",
+    "@napi-rs/cli": "^3.10.8",
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^26.6.4",
-    "@typescript-eslint/parser": "^8.71.0",
+    "@typescript-eslint/parser": "^8.71.1",
     "concurrently": "^10.0.5",
     "cross-env": "^10.1.0",
     "eslint": "9.39.2",
@@ -54,7 +54,7 @@
     "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "typescript": "5.9.3",
-    "typescript-eslint": "^8.71.0",
+    "typescript-eslint": "^8.71.1",
     "updates": "^19.2.0"
   },
   "bugs": {
