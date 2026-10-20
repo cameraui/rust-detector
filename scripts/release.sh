@@ -1,15 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# Bump the package version, commit it, tag it and push. The Release workflow
-# then cross-compiles every platform binary and publishes the main package plus
-# its platform packages to npm via OIDC trusted publishing (with provenance).
-#
-#   tag vX.Y.Z -> bumps package.json, triggers the Release workflow (npm)
-#
-# The platform packages under npm/* stay at 0.0.0 in git; `napi prepublish`
-# stamps them with the real version during the publish job.
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 GREEN='\033[0;32m'
@@ -52,7 +43,6 @@ done
 
 cd "$ROOT"
 
-# Safety: clean tree, on main, not behind origin.
 if [ -n "$(git status --porcelain)" ]; then
   echo -e "${RED}Working tree not clean - commit or stash first.${NC}"
   exit 1
@@ -99,8 +89,7 @@ fi
 
 echo -e "${CYAN}Releasing rust-detector: $cur -> $NEW (tag $TAG)${NC}"
 
-# Bump the top-level version first (leave scripts.version = "napi version") so the
-# rebuild below regenerates index.js / index.d.ts with the new version baked in.
+# bump before the rebuild so index.js and index.d.ts carry the new version
 node -e 'const fs=require("fs");const p=require("./package.json");p.version=process.argv[1];fs.writeFileSync("package.json",JSON.stringify(p,null,2)+"\n")' "$NEW"
 
 if [ "$SKIP_CHECKS" = false ]; then
@@ -108,7 +97,6 @@ if [ "$SKIP_CHECKS" = false ]; then
   npm run lint
 fi
 
-# Always rebuild so the committed (and published) bindings match the new version.
 echo -e "${YELLOW}Regenerating native bindings...${NC}"
 npm run build:debug
 

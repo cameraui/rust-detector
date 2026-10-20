@@ -248,7 +248,6 @@ impl ImageProcessor {
     let w = self.width as usize;
     let h = self.height as usize;
 
-    // Step 1: Blur into current buffer
     {
       let current_buf = if self.buf_phase {
         &mut self.blur_buf_a
@@ -264,7 +263,6 @@ impl ImageProcessor {
       )?;
     }
 
-    // Save blurred image
     {
       let current_buf = if self.buf_phase {
         self.blur_buf_a.as_slice()
@@ -284,7 +282,6 @@ impl ImageProcessor {
       return Ok(vec![]);
     }
 
-    // Step 2: Frame differences into diff_buffer
     {
       let (previous_slice, current_slice) = if self.buf_phase {
         (self.blur_buf_b.as_slice(), self.blur_buf_a.as_slice())
@@ -299,14 +296,12 @@ impl ImageProcessor {
       );
     }
 
-    // Save difference image
     self.save_debug_image(
       &self.diff_buffer,
       &output_dir,
       &format!("{}_2_difference.png", prefix),
     )?;
 
-    // Step 3: Dilate diff_buffer → dilate_buffer
     dilate_binary_box(
       &self.diff_buffer,
       &mut self.morph_scratch,
@@ -316,14 +311,12 @@ impl ImageProcessor {
       dilate_size as usize,
     );
 
-    // Save dilated image
     self.save_debug_image(
       &self.dilate_buffer,
       &output_dir,
       &format!("{}_3_dilated.png", prefix),
     )?;
 
-    // Step 4: Blobs on dilate_buffer, then cluster like process_image does
     let blobs = find_blobs(
       &self.dilate_buffer,
       w,
@@ -343,7 +336,6 @@ impl ImageProcessor {
         .collect()
     };
 
-    // Save bounding boxes image
     self.save_debug_image_with_boxes(
       &self.dilate_buffer,
       &bounding_boxes,
@@ -477,7 +469,6 @@ fn dilate_binary_box(
 
   let blocks_end = if width >= 32 + r { width - 32 - r } else { 0 };
 
-  // Horizontal pass: input -> scratch (OR across columns within r).
   for y in 0..height {
     let row = y * width;
     let in_row = &input[row..row + width];
@@ -495,7 +486,7 @@ fn dilate_binary_box(
     }
     let simd_end = x;
 
-    // Borders (and the whole row when the SIMD loop didn't run).
+    // borders, or the whole row when the simd loop didn't run
     for x in (0..r.min(width)).chain(simd_end..width) {
       let lo = x.saturating_sub(r);
       let hi = (x + r + 1).min(width);
@@ -507,7 +498,6 @@ fn dilate_binary_box(
     }
   }
 
-  // Vertical pass: scratch -> output (OR across rows within r).
   for y in 0..height {
     let row = y * width;
 
@@ -530,7 +520,6 @@ fn dilate_binary_box(
         output[row + x] = v;
       }
     } else {
-      // Border row: clamp the vertical window.
       let lo = y.saturating_sub(r);
       let hi = (y + r + 1).min(height);
       for x in 0..width {
