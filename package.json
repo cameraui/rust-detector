@@ -36,7 +36,7 @@
     "test:watch": "node --import tsx --watch test/index.ts",
     "test": "node --import tsx test/index.ts",
     "universal": "napi universal",
-    "update": "updates -M npm,pypi,go,cargo,docker,make --update ./",
+    "update": "updates -M npm,pypi,go,cargo,docker --update ./",
     "version": "napi version"
   },
   "devDependencies": {
