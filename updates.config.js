@@ -1,3 +1,3 @@
 module.exports = {
-  exclude: ['typescript', 'eslint'],
+  exclude: ['typescript', 'eslint', '@stylistic/eslint-plugin'],
 };
