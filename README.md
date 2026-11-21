@@ -1,8 +1,8 @@
 # @camera.ui/rust-detector
 
-Native Rust motion/object detector for the [camera.ui](https://github.com/seydx/camera.ui) ecosystem.
+Native Rust motion/object detector for the [camera.ui](https://github.com/cameraui/camera.ui) ecosystem.
 
-Built with [napi-rs](https://napi.rs) — ships prebuilt binaries for Linux (glibc/musl), macOS, Windows and FreeBSD across x64, arm64 and riscv64, so there is no compile step on install.
+Built with [napi-rs](https://napi.rs). Prebuilt binaries ship for Linux (glibc/musl), macOS, Windows and FreeBSD across x64, arm64 and riscv64, so there is no compile step on install.
 
 ## Installation
 
