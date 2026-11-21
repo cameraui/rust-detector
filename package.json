@@ -64,7 +64,10 @@
   "keywords": [
     "camera-ui",
     "detector",
-    "rust"
+    "rust",
+    "camera.ui",
+    "napi-rs",
+    "motion-detection"
   ],
   "license": "MIT",
   "repository": {
