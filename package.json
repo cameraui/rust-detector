@@ -41,7 +41,7 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.10.12",
-    "@stylistic/eslint-plugin": "^5.10.0",
+    "@stylistic/eslint-plugin": "^6.0.1",
     "@types/node": "^26.6.6",
     "@typescript-eslint/parser": "^8.73.0",
     "concurrently": "^10.0.7",
